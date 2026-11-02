@@ -40,9 +40,7 @@ class MainActivity : Activity() {
     private lateinit var statusText: TextView
 
     private var isLoading = false
-    private var lastQuestion = ""
     private var thinkingView: View? = null
-    private var loadingLabel: TextView? = null
 
     private val bg = Color.rgb(12, 12, 18)
     private val panel = Color.rgb(25, 25, 36)
@@ -59,12 +57,12 @@ class MainActivity : Activity() {
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         )
 
-        if (Build.VERSION.SDK_INT >= 29) {
-            window.isNavigationBarContrastEnforced = false
-        }
-
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
+        }
+
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.isNavigationBarContrastEnforced = false
         }
 
         buildUI()
@@ -77,8 +75,6 @@ class MainActivity : Activity() {
             setBackgroundColor(bg)
             clipToPadding = false
         }
-
-        // SYSTEM BARS + KEYBOARD INSETS
 
         root.setOnApplyWindowInsetsListener { view, insets ->
 
@@ -106,6 +102,7 @@ class MainActivity : Activity() {
 
             } else {
 
+                @Suppress("DEPRECATION")
                 view.setPadding(
                     insets.systemWindowInsetLeft,
                     insets.systemWindowInsetTop,
@@ -190,7 +187,7 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, 0, 1f)
         )
 
-        // INPUT AREA
+        // INPUT
 
         val bottom = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -349,7 +346,6 @@ class MainActivity : Activity() {
 
         val params = LinearLayout.LayoutParams(-1, -2)
         params.setMargins(0, dp(8), 0, 0)
-
         parent.addView(item, params)
     }
 
@@ -379,9 +375,7 @@ class MainActivity : Activity() {
         input.text.clear()
         hideKeyboard()
 
-        lastQuestion = question
         messages.add(Pair("user", question))
-
         addBubble("user", question)
 
         requestAI()
@@ -478,11 +472,7 @@ class MainActivity : Activity() {
                 runOnUiThread {
 
                     removeThinking()
-
-                    messages.add(
-                        Pair("assistant", reply)
-                    )
-
+                    messages.add(Pair("assistant", reply))
                     setLoading(false)
                     addBubble("assistant", reply)
                 }
@@ -576,42 +566,43 @@ class MainActivity : Activity() {
             container.addView(header)
             container.addView(answer)
 
-            // ACTION BUTTONS
-
             val actions = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, dp(5), 0, 0)
             }
 
-            val like = createAction("👍") {
-                Toast.makeText(
-                    this,
-                    "Terima kasih atas penilaiannya",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            actions.addView(
+                createAction("👍") {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Terima kasih atas penilaiannya",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            )
 
-            val dislike = createAction("👎") {
-                Toast.makeText(
-                    this,
-                    "Masukan diterima",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            actions.addView(
+                createAction("👎") {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Masukan diterima",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            )
 
-            val copy = createAction("Salin") {
-                copyText(message)
-            }
+            actions.addView(
+                createAction("Salin") {
+                    copyText(message)
+                }
+            )
 
-            val regenerate = createAction("↻") {
-                regenerateAnswer()
-            }
-
-            actions.addView(like)
-            actions.addView(dislike)
-            actions.addView(copy)
-            actions.addView(regenerate)
+            actions.addView(
+                createAction("↻") {
+                    regenerateAnswer()
+                }
+            )
 
             container.addView(actions)
             chatLayout.addView(container)
@@ -648,10 +639,7 @@ class MainActivity : Activity() {
             ) as ClipboardManager
 
         clipboard.setPrimaryClip(
-            ClipData.newPlainText(
-                "AI-XD",
-                message
-            )
+            ClipData.newPlainText("AI-XD", message)
         )
 
         Toast.makeText(
@@ -666,22 +654,20 @@ class MainActivity : Activity() {
     private fun regenerateAnswer() {
 
         if (isLoading) return
-
         if (messages.isEmpty()) return
 
         if (messages.last().first == "assistant") {
             messages.removeAt(messages.lastIndex)
+
+            if (chatLayout.childCount > 0) {
+                chatLayout.removeViewAt(
+                    chatLayout.childCount - 1
+                )
+            }
         }
 
         if (messages.isEmpty()) return
-
         if (messages.last().first != "user") return
-
-        if (chatLayout.childCount > 0) {
-            chatLayout.removeViewAt(
-                chatLayout.childCount - 1
-            )
-        }
 
         requestAI()
     }
@@ -711,9 +697,7 @@ class MainActivity : Activity() {
 
         row.addView(bubble)
         chatLayout.addView(row)
-
         thinkingView = row
-        loadingLabel = bubble
 
         scrollToBottom()
     }
@@ -725,7 +709,6 @@ class MainActivity : Activity() {
         }
 
         thinkingView = null
-        loadingLabel = null
     }
 
     // LOADING
@@ -733,7 +716,6 @@ class MainActivity : Activity() {
     private fun setLoading(loading: Boolean) {
 
         isLoading = loading
-
         sendButton.isEnabled = !loading
         sendButton.alpha = if (loading) 0.5f else 1f
 
@@ -749,13 +731,26 @@ class MainActivity : Activity() {
         if (isLoading) return
 
         messages.clear()
-        lastQuestion = ""
-
         removeThinking()
         showWelcome()
     }
 
-    // UTILITIES
+    // KEYBOARD
+
+    private fun hideKeyboard() {
+
+        val manager =
+            getSystemService(
+                Context.INPUT_METHOD_SERVICE
+            ) as InputMethodManager
+
+        manager.hideSoftInputFromWindow(
+            input.windowToken,
+            0
+        )
+    }
+
+    // SCROLL
 
     private fun scrollToBottom() {
 
@@ -767,11 +762,26 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun hideKeyboard() {
+    // DESIGN
 
-        val manager =
-            getSystemService(
-                Context.INPUT_METHOD_SERVICE
-            ) as InputMethodManager
+    private fun rounded(
+    color: Int,
+    radius: Int
+): GradientDrawable {
+    return GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radius).toFloat()
+    }
+}
 
-        manager.
+private fun dp(value: Int): Int {
+    return (
+        value * resources.displayMetrics.density
+    ).toInt()
+}
+
+override fun onDestroy() {
+    executor.shutdownNow()
+    super.onDestroy()
+}
+}
