@@ -1,6 +1,8 @@
 
 import streamlit as st
-from groq import Groq
+import json
+import urllib.request
+import urllib.error
 
 st.set_page_config(
     page_title="AI-XD",
@@ -8,18 +10,12 @@ st.set_page_config(
     layout="centered"
 )
 
+BACKEND_URL = "https://ai-xd-backend.anomaliyanzz17.workers.dev/chat"
+
 st.title("🤖 AI-XD")
 st.caption("Asisten AI buatan Nael")
 
-# Menghubungkan API Groq
-try:
-    api_key = st.secrets["GROQ_API_KEY"]
-    client = Groq(api_key=api_key)
-except Exception:
-    st.error("API Key Groq belum terbaca. Periksa Streamlit Secrets.")
-    st.stop()
-
-# Menyimpan riwayat percakapan
+# Riwayat percakapan
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -31,7 +27,35 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-    st.caption("AI-XD versi 2.1")
+    st.caption("AI-XD versi 2.2")
+
+# Fungsi menghubungkan backend
+def kirim_pesan(messages):
+    payload = json.dumps({
+        "messages": messages
+    }).encode("utf-8")
+
+    request = urllib.request.Request(
+        BACKEND_URL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
+        if not data.get("success"):
+            raise Exception(data.get("error", "Backend gagal menjawab."))
+
+        return data["reply"]
+
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        raise Exception(f"HTTP {e.code}: {detail}")
 
 # Menampilkan riwayat chat
 for chat in st.session_state.messages:
@@ -50,42 +74,11 @@ if pesan:
     with st.chat_message("user"):
         st.markdown(pesan)
 
-    system_message = {
-        "role": "system",
-        "content": """
-        Nama kamu AI-XD.
-        Kamu adalah asisten AI buatan Nael.
-
-        Gunakan bahasa Indonesia yang santai,
-        natural, jelas, dan mudah dipahami.
-
-        Kamu bisa membantu:
-        - Menjawab pertanyaan umum.
-        - Menjelaskan pelajaran.
-        - Membantu pemrograman.
-        - Memberikan ide kreatif.
-        - Melakukan percakapan sehari-hari.
-
-        Jawablah sesuai konteks percakapan.
-        Jangan mengarang fakta jika tidak tahu.
-        """
-    }
-
-    riwayat = [
-        system_message
-    ] + st.session_state.messages[-20:]
-
     with st.chat_message("assistant"):
         try:
             with st.spinner("AI-XD sedang berpikir..."):
-                response = client.chat.completions.create(
-                    model="openai/gpt-oss-120b",
-                    messages=riwayat,
-                    temperature=0.7,
-                    max_completion_tokens=1024
-                )
-
-                balasan = response.choices[0].message.content
+                riwayat = st.session_state.messages[-20:]
+                balasan = kirim_pesan(riwayat)
 
             st.markdown(balasan)
 
@@ -96,5 +89,5 @@ if pesan:
 
         except Exception as e:
             st.error("AI-XD gagal menjawab.")
-            st.code(f"{type(e).__name__}: {e}")
-            
+            st.code(str(e))
+        
