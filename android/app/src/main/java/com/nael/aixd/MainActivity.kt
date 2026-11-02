@@ -3,12 +3,13 @@ package com.nael.aixd
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Build
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
-import android.view.WindowInsets
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -32,7 +33,6 @@ class MainActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
     private val messages = mutableListOf<Pair<String, String>>()
 
-    private lateinit var root: LinearLayout
     private lateinit var chatLayout: LinearLayout
     private lateinit var scrollView: ScrollView
     private lateinit var input: EditText
@@ -54,6 +54,11 @@ class MainActivity : Activity() {
 
         window.statusBarColor = bg
         window.navigationBarColor = bg
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(true)
+        }
+
         window.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         )
@@ -63,35 +68,9 @@ class MainActivity : Activity() {
 
     private fun buildUI() {
 
-        root = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
-            fitsSystemWindows = true
-        }
-
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            window.setDecorFitsSystemWindows(true)
-        }
-
-        root.setOnApplyWindowInsetsListener { view, insets ->
-
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                val bars = insets.getInsets(
-                    WindowInsets.Type.systemBars()
-                )
-                view.setPadding(
-                    0, bars.top, 0, bars.bottom
-                )
-            } else {
-                view.setPadding(
-                    0,
-                    insets.systemWindowInsetTop,
-                    0,
-                    insets.systemWindowInsetBottom
-                )
-            }
-
-            insets
         }
 
         // HEADER
@@ -115,7 +94,7 @@ class MainActivity : Activity() {
         }
 
         statusText = TextView(this).apply {
-            text = "● AI-XD 3.1"
+            text = "● AI-XD 3.1.1"
             textSize = 10f
             setTextColor(Color.rgb(180, 140, 255))
         }
@@ -135,7 +114,10 @@ class MainActivity : Activity() {
             setTextColor(white)
             background = rounded(panel, 15)
             setPadding(dp(12), dp(3), dp(12), dp(3))
-            setOnClickListener { newConversation() }
+
+            setOnClickListener {
+                newConversation()
+            }
         }
 
         header.addView(newChat)
@@ -154,9 +136,10 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
 
+        // FIX: gunakan ViewGroup.LayoutParams
         scrollView.addView(
             chatLayout,
-            ScrollView.LayoutParams(-1, -2)
+            ViewGroup.LayoutParams(-1, -2)
         )
 
         root.addView(
@@ -212,14 +195,17 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             background = rounded(purple, 50)
             setPadding(dp(14), dp(10), dp(14), dp(10))
-            setOnClickListener { sendMessage() }
+
+            setOnClickListener {
+                sendMessage()
+            }
         }
 
         composer.addView(sendButton)
         bottom.addView(composer)
 
         val footer = TextView(this).apply {
-            text = "AI-XD 3.1 • Your AI Assistant"
+            text = "AI-XD 3.1.1 • Your AI Assistant"
             textSize = 10f
             setTextColor(muted)
             gravity = Gravity.CENTER
@@ -230,12 +216,11 @@ class MainActivity : Activity() {
         root.addView(bottom)
 
         setContentView(root)
-        root.requestApplyInsets()
 
         showWelcome()
     }
 
-    // WELCOME
+    // WELCOME SCREEN
 
     private fun showWelcome() {
 
@@ -299,23 +284,28 @@ class MainActivity : Activity() {
                     when {
                         text.contains("Belajar") ->
                             "Bantu aku belajar sesuatu."
+
                         text.contains("coding") ->
                             "Bantu aku belajar coding."
+
                         text.contains("Menulis") ->
                             "Bantu aku membuat tulisan."
+
                         else -> "Halo AI-XD!"
                     }
                 )
+
                 sendMessage()
             }
         }
 
         val params = LinearLayout.LayoutParams(-1, -2)
         params.setMargins(0, dp(8), 0, 0)
+
         parent.addView(item, params)
     }
 
-    // SEND
+    // SEND MESSAGE
 
     private fun sendMessage() {
 
@@ -360,19 +350,23 @@ class MainActivity : Activity() {
                 connection.doOutput = true
 
                 connection.setRequestProperty(
-                    "Content-Type", "application/json"
+                    "Content-Type",
+                    "application/json"
                 )
 
                 connection.setRequestProperty(
-                    "Accept", "application/json"
+                    "Accept",
+                    "application/json"
                 )
 
                 val jsonMessages = JSONArray()
 
                 messages.takeLast(30).forEach { message ->
+
                     val item = JSONObject()
                     item.put("role", message.first)
                     item.put("content", message.second)
+
                     jsonMessages.put(item)
                 }
 
@@ -409,7 +403,10 @@ class MainActivity : Activity() {
 
                 if (!result.optBoolean("success", true)) {
                     throw Exception(
-                        result.optString("error", "AI gagal menjawab.")
+                        result.optString(
+                            "error",
+                            "AI gagal menjawab."
+                        )
                     )
                 }
 
@@ -420,8 +417,10 @@ class MainActivity : Activity() {
                 }
 
                 runOnUiThread {
+
                     removeThinking()
                     messages.add(Pair("assistant", reply))
+
                     setLoading(false)
                     addBubble("assistant", reply)
                 }
@@ -429,8 +428,10 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
 
                 runOnUiThread {
+
                     removeThinking()
                     setLoading(false)
+
                     addBubble(
                         "assistant",
                         "AI-XD gagal menjawab.\n\n${e.message}"
@@ -440,9 +441,12 @@ class MainActivity : Activity() {
         }
     }
 
-    // CHAT MESSAGE
+    // CHAT DISPLAY
 
-    private fun addBubble(role: String, message: String) {
+    private fun addBubble(
+        role: String,
+        message: String
+    ) {
 
         if (role == "user") {
 
@@ -457,8 +461,10 @@ class MainActivity : Activity() {
                 textSize = 15f
                 setTextColor(white)
                 setPadding(dp(15), dp(12), dp(15), dp(12))
+
                 background = rounded(
-                    Color.rgb(91, 57, 155), 19
+                    Color.rgb(91, 57, 155),
+                    19
                 )
             }
 
@@ -471,6 +477,8 @@ class MainActivity : Activity() {
             chatLayout.addView(row)
 
         } else {
+
+            // AI ANSWER WITHOUT BUBBLE
 
             val container = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -496,12 +504,17 @@ class MainActivity : Activity() {
                 setPadding(dp(12), dp(7), dp(10), dp(7))
 
                 setOnClickListener {
+
                     val clipboard =
-                        getSystemService(Context.CLIPBOARD_SERVICE)
-                            as ClipboardManager
+                        getSystemService(
+                            Context.CLIPBOARD_SERVICE
+                        ) as ClipboardManager
 
                     clipboard.setPrimaryClip(
-                        ClipData.newPlainText("AI-XD", message)
+                        ClipData.newPlainText(
+                            "AI-XD",
+                            message
+                        )
                     )
 
                     Toast.makeText(
@@ -516,6 +529,7 @@ class MainActivity : Activity() {
                 name,
                 LinearLayout.LayoutParams(0, -2, 1f)
             )
+
             header.addView(copy)
 
             val answer = TextView(this).apply {
@@ -529,13 +543,14 @@ class MainActivity : Activity() {
 
             container.addView(header)
             container.addView(answer)
+
             chatLayout.addView(container)
         }
 
         scrollToBottom()
     }
 
-    // THINKING ANIMATION
+    // THINKING BUBBLE
 
     private fun showThinking() {
 
@@ -552,8 +567,10 @@ class MainActivity : Activity() {
             textSize = 13f
             setTextColor(Color.rgb(205, 185, 240))
             setPadding(dp(15), dp(12), dp(15), dp(12))
+
             background = rounded(
-                Color.rgb(35, 29, 49), 18
+                Color.rgb(35, 29, 49),
+                18
             )
         }
 
@@ -594,12 +611,13 @@ class MainActivity : Activity() {
     private fun setLoading(loading: Boolean) {
 
         isLoading = loading
+
         sendButton.isEnabled = !loading
         sendButton.alpha = if (loading) 0.5f else 1f
 
         statusText.text =
             if (loading) "● AI SEDANG BERPIKIR..."
-            else "● AI-XD 3.1"
+            else "● AI-XD 3.1.1"
     }
 
     // NEW CHAT
@@ -616,6 +634,7 @@ class MainActivity : Activity() {
     // UTILITIES
 
     private fun scrollToBottom() {
+
         scrollView.post {
             scrollView.smoothScrollTo(
                 0,
@@ -625,12 +644,15 @@ class MainActivity : Activity() {
     }
 
     private fun hideKeyboard() {
+
         val manager =
-            getSystemService(Context.INPUT_METHOD_SERVICE)
-                as InputMethodManager
+            getSystemService(
+                Context.INPUT_METHOD_SERVICE
+            ) as InputMethodManager
 
         manager.hideSoftInputFromWindow(
-            input.windowToken, 0
+            input.windowToken,
+            0
         )
     }
 
@@ -638,6 +660,7 @@ class MainActivity : Activity() {
         color: Int,
         radius: Int
     ): GradientDrawable {
+
         return GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(radius).toFloat()
@@ -645,14 +668,17 @@ class MainActivity : Activity() {
     }
 
     private fun dp(value: Int): Int {
+
         return (
             value * resources.displayMetrics.density
         ).toInt()
     }
 
     override fun onDestroy() {
+
         thinkingAnimator?.cancel()
         executor.shutdownNow()
+
         super.onDestroy()
     }
 }
