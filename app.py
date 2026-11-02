@@ -65,5 +65,5 @@ if pesan:
         })
 
     except Exception as e:
-    st.error("AI-XD gagal berjalan:")
-    st.code(f"{type(e).__name__}: {e}")
+        st.error("AI-XD gagal berjalan:")
+        st.code(f"{type(e).__name__}: {e}")
