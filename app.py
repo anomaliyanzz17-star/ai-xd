@@ -1,9 +1,6 @@
+
 import streamlit as st
 from groq import Groq
-
-# =========================
-# KONFIGURASI
-# =========================
 
 st.set_page_config(
     page_title="AI-XD",
@@ -14,28 +11,19 @@ st.set_page_config(
 st.title("🤖 AI-XD")
 st.caption("Asisten AI buatan Nael")
 
-# =========================
-# CEK API KEY
-# =========================
-
+# Menghubungkan API Groq
 try:
     api_key = st.secrets["GROQ_API_KEY"]
     client = Groq(api_key=api_key)
 except Exception:
-    st.error(
-        "API Key Groq belum terbaca. "
-        "Periksa Streamlit Secrets."
-    )
+    st.error("API Key Groq belum terbaca. Periksa Streamlit Secrets.")
     st.stop()
 
-# =========================
-# RIWAYAT CHAT
-# =========================
-
+# Menyimpan riwayat percakapan
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Tombol hapus percakapan
+# Sidebar
 with st.sidebar:
     st.subheader("Pengaturan AI-XD")
 
@@ -43,22 +31,17 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-    st.caption("AI-XD versi 2.0")
+    st.caption("AI-XD versi 2.1")
 
-# Tampilkan chat sebelumnya
+# Menampilkan riwayat chat
 for chat in st.session_state.messages:
     with st.chat_message(chat["role"]):
         st.markdown(chat["content"])
 
-# =========================
-# INPUT PESAN
-# =========================
-
+# Input pesan
 pesan = st.chat_input("Tanyakan sesuatu kepada AI-XD...")
 
 if pesan:
-
-    # Simpan pesan pengguna
     st.session_state.messages.append({
         "role": "user",
         "content": pesan
@@ -67,7 +50,6 @@ if pesan:
     with st.chat_message("user"):
         st.markdown(pesan)
 
-    # Instruksi ke AI
     system_message = {
         "role": "system",
         "content": """
@@ -89,22 +71,15 @@ if pesan:
         """
     }
 
-    # Ambil riwayat percakapan
     riwayat = [
         system_message
     ] + st.session_state.messages[-20:]
 
-    # =========================
-    # HUBUNGKAN KE GROQ
-    # =========================
-
     with st.chat_message("assistant"):
-
         try:
             with st.spinner("AI-XD sedang berpikir..."):
-
                 response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                    model="openai/gpt-oss-120b",
                     messages=riwayat,
                     temperature=0.7,
                     max_completion_tokens=1024
@@ -114,7 +89,6 @@ if pesan:
 
             st.markdown(balasan)
 
-            # Simpan jawaban AI
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": balasan
