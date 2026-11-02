@@ -8,9 +8,15 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,6 +32,7 @@ class MainActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
     private val messages = mutableListOf<Pair<String, String>>()
 
+    private lateinit var root: LinearLayout
     private lateinit var chatLayout: LinearLayout
     private lateinit var scrollView: ScrollView
     private lateinit var input: EditText
@@ -33,10 +40,11 @@ class MainActivity : Activity() {
     private lateinit var statusText: TextView
 
     private var isLoading = false
-    private var welcomeView: View? = null
+    private var thinkingView: View? = null
+    private var thinkingAnimator: ObjectAnimator? = null
 
     private val bg = Color.rgb(12, 12, 18)
-    private val panel = Color.rgb(23, 23, 33)
+    private val panel = Color.rgb(25, 25, 36)
     private val purple = Color.rgb(155, 92, 255)
     private val white = Color.rgb(240, 240, 248)
     private val muted = Color.rgb(155, 155, 175)
@@ -46,21 +54,52 @@ class MainActivity : Activity() {
 
         window.statusBarColor = bg
         window.navigationBarColor = bg
+        window.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        )
 
         buildUI()
     }
 
     private fun buildUI() {
-        val root = LinearLayout(this).apply {
+
+        root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
+            fitsSystemWindows = true
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(true)
+        }
+
+        root.setOnApplyWindowInsetsListener { view, insets ->
+
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val bars = insets.getInsets(
+                    WindowInsets.Type.systemBars()
+                )
+                view.setPadding(
+                    0, bars.top, 0, bars.bottom
+                )
+            } else {
+                view.setPadding(
+                    0,
+                    insets.systemWindowInsetTop,
+                    0,
+                    insets.systemWindowInsetBottom
+                )
+            }
+
+            insets
         }
 
         // HEADER
+
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20), dp(17), dp(20), dp(17))
+            setPadding(dp(19), dp(13), dp(19), dp(13))
             setBackgroundColor(Color.rgb(18, 18, 27))
         }
 
@@ -70,21 +109,20 @@ class MainActivity : Activity() {
 
         val title = TextView(this).apply {
             text = "AI-XD"
-            textSize = 24f
+            textSize = 23f
             setTextColor(white)
             typeface = Typeface.DEFAULT_BOLD
         }
 
         statusText = TextView(this).apply {
-            text = "● AI ASSISTANT"
+            text = "● AI-XD 3.1"
             textSize = 10f
-            setTextColor(Color.rgb(175, 135, 255))
+            setTextColor(Color.rgb(180, 140, 255))
         }
 
         brand.addView(title)
         brand.addView(statusText)
 
-        val spacer = View(this)
         header.addView(
             brand,
             LinearLayout.LayoutParams(0, -2, 1f)
@@ -92,7 +130,7 @@ class MainActivity : Activity() {
 
         val newChat = TextView(this).apply {
             text = "＋"
-            textSize = 27f
+            textSize = 26f
             gravity = Gravity.CENTER
             setTextColor(white)
             background = rounded(panel, 15)
@@ -104,27 +142,33 @@ class MainActivity : Activity() {
         root.addView(header)
 
         // CHAT AREA
+
         scrollView = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
-            setPadding(dp(15), dp(15), dp(15), dp(15))
+            overScrollMode = View.OVER_SCROLL_NEVER
+            setPadding(dp(17), dp(15), dp(17), dp(15))
         }
 
         chatLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
 
-        scrollView.addView(chatLayout)
+        scrollView.addView(
+            chatLayout,
+            ScrollView.LayoutParams(-1, -2)
+        )
 
         root.addView(
             scrollView,
-            LinearLayout.LayoutParams( -1, 0, 1f)
+            LinearLayout.LayoutParams(-1, 0, 1f)
         )
 
-        // MESSAGE COMPOSER
+        // INPUT AREA
+
         val bottom = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(10), dp(14), dp(15))
+            setPadding(dp(13), dp(10), dp(13), dp(10))
             setBackgroundColor(Color.rgb(18, 18, 27))
         }
 
@@ -132,7 +176,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = rounded(panel, 25)
-            setPadding(dp(12), dp(5), dp(7), dp(5))
+            setPadding(dp(11), dp(5), dp(7), dp(5))
         }
 
         input = EditText(this).apply {
@@ -150,7 +194,9 @@ class MainActivity : Activity() {
                 if (actionId == EditorInfo.IME_ACTION_SEND) {
                     sendMessage()
                     true
-                } else false
+                } else {
+                    false
+                }
             }
         }
 
@@ -173,28 +219,32 @@ class MainActivity : Activity() {
         bottom.addView(composer)
 
         val footer = TextView(this).apply {
-            text = "AI-XD dapat membuat kesalahan. Periksa informasi penting."
+            text = "AI-XD 3.1 • Your AI Assistant"
             textSize = 10f
             setTextColor(muted)
             gravity = Gravity.CENTER
-            setPadding(0, dp(9), 0, 0)
+            setPadding(0, dp(8), 0, 0)
         }
 
         bottom.addView(footer)
         root.addView(bottom)
 
         setContentView(root)
+        root.requestApplyInsets()
+
         showWelcome()
     }
 
-    // WELCOME SCREEN
+    // WELCOME
+
     private fun showWelcome() {
+
         chatLayout.removeAllViews()
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(12), dp(65), dp(12), dp(35))
+            setPadding(dp(12), dp(55), dp(12), dp(35))
         }
 
         val logo = TextView(this).apply {
@@ -206,7 +256,7 @@ class MainActivity : Activity() {
 
         val heading = TextView(this).apply {
             text = "What can I help with?"
-            textSize = 25f
+            textSize = 24f
             gravity = Gravity.CENTER
             setTextColor(white)
             typeface = Typeface.DEFAULT_BOLD
@@ -229,10 +279,13 @@ class MainActivity : Activity() {
         addSuggestion(container, "Tanya apa saja")
 
         chatLayout.addView(container)
-        welcomeView = container
     }
 
-    private fun addSuggestion(parent: LinearLayout, text: String) {
+    private fun addSuggestion(
+        parent: LinearLayout,
+        text: String
+    ) {
+
         val item = TextView(this).apply {
             this.text = "✦   $text"
             textSize = 13f
@@ -262,16 +315,27 @@ class MainActivity : Activity() {
         parent.addView(item, params)
     }
 
-    // SEND MESSAGE
+    // SEND
+
     private fun sendMessage() {
+
         if (isLoading) return
 
         val question = input.text.toString().trim()
+
         if (question.isEmpty()) return
 
-        welcomeView?.let {
-            chatLayout.removeView(it)
-            welcomeView = null
+        if (question.length > 6000) {
+            Toast.makeText(
+                this,
+                "Pesan terlalu panjang.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        if (messages.isEmpty()) {
+            chatLayout.removeAllViews()
         }
 
         input.text.clear()
@@ -279,10 +343,14 @@ class MainActivity : Activity() {
 
         messages.add(Pair("user", question))
         addBubble("user", question)
+
         setLoading(true)
+        showThinking()
 
         executor.execute {
+
             try {
+
                 val connection =
                     URL(apiUrl).openConnection() as HttpURLConnection
 
@@ -294,6 +362,7 @@ class MainActivity : Activity() {
                 connection.setRequestProperty(
                     "Content-Type", "application/json"
                 )
+
                 connection.setRequestProperty(
                     "Accept", "application/json"
                 )
@@ -311,7 +380,9 @@ class MainActivity : Activity() {
                 body.put("messages", jsonMessages)
 
                 connection.outputStream.use {
-                    it.write(body.toString().toByteArray(Charsets.UTF_8))
+                    it.write(
+                        body.toString().toByteArray(Charsets.UTF_8)
+                    )
                 }
 
                 val responseCode = connection.responseCode
@@ -331,7 +402,7 @@ class MainActivity : Activity() {
                 connection.disconnect()
 
                 if (responseCode !in 200..299) {
-                    throw Exception("Server error: HTTP $responseCode")
+                    throw Exception("HTTP $responseCode")
                 }
 
                 val result = JSONObject(response)
@@ -345,17 +416,20 @@ class MainActivity : Activity() {
                 val reply = result.optString("reply", "")
 
                 if (reply.isBlank()) {
-                    throw Exception("AI memberikan jawaban kosong.")
+                    throw Exception("Jawaban AI kosong.")
                 }
 
                 runOnUiThread {
+                    removeThinking()
                     messages.add(Pair("assistant", reply))
                     setLoading(false)
                     addBubble("assistant", reply)
                 }
 
             } catch (e: Exception) {
+
                 runOnUiThread {
+                    removeThinking()
                     setLoading(false)
                     addBubble(
                         "assistant",
@@ -366,72 +440,204 @@ class MainActivity : Activity() {
         }
     }
 
-    // CHAT BUBBLES
+    // CHAT MESSAGE
+
     private fun addBubble(role: String, message: String) {
-        val isUser = role == "user"
 
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = if (isUser) Gravity.END else Gravity.START
-            setPadding(0, dp(5), 0, dp(5))
-        }
+        if (role == "user") {
 
-        val bubble = TextView(this).apply {
-            text = message
-            textSize = 15f
-            setTextColor(white)
-            setPadding(dp(15), dp(12), dp(15), dp(12))
-            background = rounded(
-                if (isUser) Color.rgb(91, 57, 155)
-                else Color.rgb(30, 30, 42),
-                19
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+                setPadding(0, dp(8), 0, dp(8))
+            }
+
+            val bubble = TextView(this).apply {
+                text = message
+                textSize = 15f
+                setTextColor(white)
+                setPadding(dp(15), dp(12), dp(15), dp(12))
+                background = rounded(
+                    Color.rgb(91, 57, 155), 19
+                )
+            }
+
+            val params = LinearLayout.LayoutParams(
+                (resources.displayMetrics.widthPixels * 0.78f).toInt(),
+                -2
             )
+
+            row.addView(bubble, params)
+            chatLayout.addView(row)
+
+        } else {
+
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(2), dp(15), dp(2), dp(15))
+            }
+
+            val header = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val name = TextView(this).apply {
+                text = "✦  AI-XD"
+                textSize = 14f
+                setTextColor(Color.rgb(190, 155, 255))
+                typeface = Typeface.DEFAULT_BOLD
+            }
+
+            val copy = TextView(this).apply {
+                text = "Salin"
+                textSize = 12f
+                setTextColor(muted)
+                setPadding(dp(12), dp(7), dp(10), dp(7))
+
+                setOnClickListener {
+                    val clipboard =
+                        getSystemService(Context.CLIPBOARD_SERVICE)
+                            as ClipboardManager
+
+                    clipboard.setPrimaryClip(
+                        ClipData.newPlainText("AI-XD", message)
+                    )
+
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Jawaban disalin",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+
+            header.addView(
+                name,
+                LinearLayout.LayoutParams(0, -2, 1f)
+            )
+            header.addView(copy)
+
+            val answer = TextView(this).apply {
+                text = message
+                textSize = 15f
+                setTextColor(white)
+                setLineSpacing(dp(3).toFloat(), 1f)
+                setPadding(0, dp(9), 0, dp(5))
+                setTextIsSelectable(true)
+            }
+
+            container.addView(header)
+            container.addView(answer)
+            chatLayout.addView(container)
         }
 
-        val params = LinearLayout.LayoutParams(
-            (resources.displayMetrics.widthPixels * 0.82f).toInt(),
-            -2
-        )
-
-        row.addView(bubble, params)
-        chatLayout.addView(row)
         scrollToBottom()
     }
 
-    // LOADING STATE
+    // THINKING ANIMATION
+
+    private fun showThinking() {
+
+        removeThinking()
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.START
+            setPadding(0, dp(12), 0, dp(12))
+        }
+
+        val bubble = TextView(this).apply {
+            text = "✦  AI-XD sedang berpikir..."
+            textSize = 13f
+            setTextColor(Color.rgb(205, 185, 240))
+            setPadding(dp(15), dp(12), dp(15), dp(12))
+            background = rounded(
+                Color.rgb(35, 29, 49), 18
+            )
+        }
+
+        row.addView(bubble)
+        chatLayout.addView(row)
+
+        thinkingView = row
+
+        thinkingAnimator = ObjectAnimator.ofFloat(
+            row,
+            "alpha",
+            0.45f,
+            1f
+        ).apply {
+            duration = 850
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            start()
+        }
+
+        scrollToBottom()
+    }
+
+    private fun removeThinking() {
+
+        thinkingAnimator?.cancel()
+        thinkingAnimator = null
+
+        thinkingView?.let {
+            chatLayout.removeView(it)
+        }
+
+        thinkingView = null
+    }
+
+    // LOADING
+
     private fun setLoading(loading: Boolean) {
+
         isLoading = loading
         sendButton.isEnabled = !loading
         sendButton.alpha = if (loading) 0.5f else 1f
 
         statusText.text =
             if (loading) "● AI SEDANG BERPIKIR..."
-            else "● AI ASSISTANT"
+            else "● AI-XD 3.1"
     }
 
     // NEW CHAT
+
     private fun newConversation() {
+
         if (isLoading) return
+
         messages.clear()
+        removeThinking()
         showWelcome()
     }
 
-    // HELPERS
+    // UTILITIES
+
     private fun scrollToBottom() {
         scrollView.post {
-            scrollView.fullScroll(View.FOCUS_DOWN)
+            scrollView.smoothScrollTo(
+                0,
+                chatLayout.height
+            )
         }
     }
 
     private fun hideKeyboard() {
         val manager =
             getSystemService(Context.INPUT_METHOD_SERVICE)
-                    as InputMethodManager
+                as InputMethodManager
 
-        manager.hideSoftInputFromWindow(input.windowToken, 0)
+        manager.hideSoftInputFromWindow(
+            input.windowToken, 0
+        )
     }
 
-    private fun rounded(color: Int, radius: Int): GradientDrawable {
+    private fun rounded(
+        color: Int,
+        radius: Int
+    ): GradientDrawable {
         return GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(radius).toFloat()
@@ -439,10 +645,13 @@ class MainActivity : Activity() {
     }
 
     private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
+        return (
+            value * resources.displayMetrics.density
+        ).toInt()
     }
 
     override fun onDestroy() {
+        thinkingAnimator?.cancel()
         executor.shutdownNow()
         super.onDestroy()
     }
