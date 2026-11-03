@@ -802,37 +802,29 @@ class MainActivity : Activity() {
                 setPadding(0, dp(5), 0, 0)
             }
 
-            actions.addView(
-                createAction("👍") {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Terima kasih atas penilaiannya",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            )
+actions.addView(createAction("👍") {
+    Toast.makeText(
+        this@MainActivity,
+        "Terima kasih atas penilaiannya",
+        Toast.LENGTH_SHORT
+    ).show()
+})
 
-            actions.addView(
-                createAction("👎") {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Masukan diterima",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            )
+actions.addView(createAction("👎") {
+    Toast.makeText(
+        this@MainActivity,
+        "Masukan diterima",
+        Toast.LENGTH_SHORT
+    ).show()
+})
 
-            actions.addView(
-                createAction("Salin") {
-                    copyText(message)
-                }
-            )
+actions.addView(createAction("▢") {
+    copyText(message)
+})
 
-            actions.addView(
-                createAction("↻") {
-                    regenerateAnswer()
-                }
-            )
+actions.addView(createAction("↻") {
+    regenerateAnswer()
+})
 
             container.addView(actions)
             chatLayout.addView(container)
