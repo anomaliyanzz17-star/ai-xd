@@ -340,7 +340,7 @@ class MainActivity : Activity() {
             setHintTextColor(muted)
             setTextColor(white)
             textSize = 14f
-            singleLine = true
+            setSingleLine(true)
             setPadding(dp(14), dp(11), dp(14), dp(11))
             background = rounded(panel, 13)
         }
