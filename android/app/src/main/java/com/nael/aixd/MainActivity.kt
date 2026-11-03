@@ -1,19 +1,16 @@
-
 package com.nael.aixd
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Build
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.StyleSpan
-import android.text.style.ForegroundColorSpan
-import android.text.style.TypefaceSpan
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -21,11 +18,6 @@ import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.*
-import android.animation.ValueAnimator
-import android.view.animation.DecelerateInterpolator
-import androidx.core.view.WindowCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -39,13 +31,17 @@ class MainActivity : Activity() {
 
     private val executor = Executors.newSingleThreadExecutor()
     private val messages = mutableListOf<Pair<String, String>>()
-
     private data class ChatSession(
-        val title: String,
-        val messages: List<Pair<String, String>>
+        var title: String,
+        val messages: MutableList<Pair<String, String>> = mutableListOf()
     )
-
     private val sessions = mutableListOf<ChatSession>()
+    private var currentSession: ChatSession? = null
+    private var drawerPopup: PopupWindow? = null
+    private var drawerHistory: LinearLayout? = null
+    private var drawerSearch: EditText? = null
+    private var touchStartX = 0f
+    private var touchStartY = 0f
 
     private lateinit var root: LinearLayout
     private lateinit var chatLayout: LinearLayout
@@ -53,11 +49,9 @@ class MainActivity : Activity() {
     private lateinit var input: EditText
     private lateinit var sendButton: TextView
     private lateinit var statusText: TextView
-    private lateinit var historyButton: TextView
 
     private var isLoading = false
     private var thinkingView: View? = null
-    private var thinkingAnimator: ValueAnimator? = null
 
     private val bg = Color.rgb(12, 12, 18)
     private val panel = Color.rgb(25, 25, 36)
@@ -74,10 +68,13 @@ class MainActivity : Activity() {
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         )
 
-        WindowCompat.setDecorFitsSystemWindows(
-            window,
-            false
-        )
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+        }
+
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.isNavigationBarContrastEnforced = false
+        }
 
         buildUI()
     }
@@ -90,54 +87,78 @@ class MainActivity : Activity() {
             clipToPadding = false
         }
 
-        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+        root.setOnApplyWindowInsetsListener { view, insets ->
 
-            val bars = insets.getInsets(
-                WindowInsetsCompat.Type.systemBars()
-            )
+            if (Build.VERSION.SDK_INT >= 30) {
 
-            val keyboard = insets.getInsets(
-                WindowInsetsCompat.Type.ime()
-            )
+                val systemBars = insets.getInsets(
+                    WindowInsets.Type.systemBars()
+                )
 
-            view.setPadding(
-                bars.left,
-                bars.top,
-                bars.right,
-                maxOf(bars.bottom, keyboard.bottom)
-            )
+                val ime = insets.getInsets(
+                    WindowInsets.Type.ime()
+                )
+
+                val bottomInset = maxOf(
+                    systemBars.bottom,
+                    ime.bottom
+                )
+
+                view.setPadding(
+                    systemBars.left,
+                    systemBars.top,
+                    systemBars.right,
+                    bottomInset
+                )
+
+            } else {
+
+                @Suppress("DEPRECATION")
+                view.setPadding(
+                    insets.systemWindowInsetLeft,
+                    insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight,
+                    insets.systemWindowInsetBottom
+                )
+            }
 
             insets
         }
 
+        // HEADER
+
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(13), dp(10), dp(13), dp(10))
+            setPadding(dp(19), dp(12), dp(19), dp(12))
             setBackgroundColor(Color.rgb(18, 18, 27))
         }
 
-        historyButton = createHeaderButton("☰")
-        historyButton.setOnClickListener {
-            showHistory()
+        val menuButton = TextView(this).apply {
+            text = "☰"
+            textSize = 23f
+            gravity = Gravity.CENTER
+            setTextColor(white)
+            background = rounded(panel, 13)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setOnClickListener { openSidebar() }
         }
-
-        header.addView(historyButton)
+        header.addView(menuButton)
 
         val brand = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(11), 0, 0, 0)
+            setPadding(dp(13), 0, 0, 0)
         }
 
         val title = TextView(this).apply {
             text = "AI-XD"
-            textSize = 21f
+            textSize = 23f
             setTextColor(white)
             typeface = Typeface.DEFAULT_BOLD
         }
 
         statusText = TextView(this).apply {
-            text = "● AI-XD 4.0"
+            text = "● AI-XD 4.1"
             textSize = 10f
             setTextColor(Color.rgb(180, 140, 255))
         }
@@ -150,13 +171,23 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(0, -2, 1f)
         )
 
-        val newChat = createHeaderButton("＋")
-        newChat.setOnClickListener {
-            newConversation()
+        val newChat = TextView(this).apply {
+            text = "＋"
+            textSize = 25f
+            gravity = Gravity.CENTER
+            setTextColor(white)
+            background = rounded(panel, 15)
+            setPadding(dp(12), dp(3), dp(12), dp(3))
+
+            setOnClickListener {
+                newConversation()
+            }
         }
 
         header.addView(newChat)
         root.addView(header)
+
+        // CHAT AREA
 
         scrollView = ScrollView(this).apply {
             isFillViewport = true
@@ -179,9 +210,11 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, 0, 1f)
         )
 
+        // INPUT
+
         val bottom = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(13), dp(9), dp(13), dp(7))
+            setPadding(dp(13), dp(10), dp(13), dp(8))
             setBackgroundColor(Color.rgb(18, 18, 27))
         }
 
@@ -235,11 +268,11 @@ class MainActivity : Activity() {
         bottom.addView(composer)
 
         val footer = TextView(this).apply {
-            text = "AI-XD 4.0 • Your AI Assistant"
+            text = "AI-XD 4.1 • Your AI Assistant"
             textSize = 10f
             setTextColor(muted)
             gravity = Gravity.CENTER
-            setPadding(0, dp(7), 0, 0)
+            setPadding(0, dp(8), 0, 0)
         }
 
         bottom.addView(footer)
@@ -248,23 +281,212 @@ class MainActivity : Activity() {
         setContentView(root)
 
         root.post {
-            ViewCompat.requestApplyInsets(root)
+            root.requestApplyInsets()
         }
 
         showWelcome()
     }
 
-    private fun createHeaderButton(label: String): TextView {
+    // SIDEBAR
 
-        return TextView(this).apply {
-            text = label
-            textSize = 23f
-            gravity = Gravity.CENTER
+    private fun openSidebar() {
+        if (drawerPopup?.isShowing == true) return
+
+        val drawer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(28), dp(18), dp(18))
+            setBackgroundColor(Color.rgb(20, 20, 30))
+        }
+
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val brand = TextView(this).apply {
+            text = "✦  AI-XD"
+            textSize = 21f
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(white)
-            background = rounded(panel, 14)
-            setPadding(dp(11), dp(4), dp(11), dp(4))
+        }
+        top.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 20f
+            setTextColor(muted)
+            setPadding(dp(12), dp(8), dp(8), dp(8))
+            setOnClickListener { drawerPopup?.dismiss() }
+        }
+        top.addView(close)
+        drawer.addView(top)
+
+        val newChatButton = TextView(this).apply {
+            text = "＋   Chat baru"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(white)
+            setPadding(dp(15), dp(14), dp(15), dp(14))
+            background = rounded(Color.rgb(76, 48, 122), 15)
+            setOnClickListener {
+                drawerPopup?.dismiss()
+                newConversation()
+            }
+        }
+        val newParams = LinearLayout.LayoutParams(-1, -2)
+        newParams.setMargins(0, dp(24), 0, dp(14))
+        drawer.addView(newChatButton, newParams)
+
+        drawerSearch = EditText(this).apply {
+            hint = "Cari percakapan..."
+            setHintTextColor(muted)
+            setTextColor(white)
+            textSize = 14f
+            singleLine = true
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+            background = rounded(panel, 13)
+        }
+        drawer.addView(drawerSearch, LinearLayout.LayoutParams(-1, -2))
+
+        val historyTitle = TextView(this).apply {
+            text = "RIWAYAT CHAT"
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(muted)
+            setPadding(dp(4), dp(22), 0, dp(9))
+        }
+        drawer.addView(historyTitle)
+
+        val historyScroll = ScrollView(this).apply {
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        drawerHistory = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        historyScroll.addView(drawerHistory)
+        drawer.addView(historyScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        addSidebarLink(drawer, "♙   Profil", "Profil akun akan tersedia pada pembaruan berikutnya.")
+        addSidebarLink(drawer, "⚙   Pengaturan", "Pengaturan sedang dikembangkan.")
+        addSidebarLink(drawer, "文   Bahasa", "Pilihan bahasa akan tersedia pada pembaruan berikutnya.")
+        addSidebarLink(drawer, "ⓘ   Tentang AI-XD", "AI-XD adalah asisten AI independen.")
+
+        drawerPopup = PopupWindow(
+            drawer,
+            minOf(dp(320), (resources.displayMetrics.widthPixels * 0.86f).toInt()),
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            true
+        ).apply {
+            setBackgroundDrawable(rounded(Color.rgb(20, 20, 30), 0))
+            isOutsideTouchable = true
+            elevation = dp(18).toFloat()
+            showAtLocation(root, Gravity.TOP or Gravity.START, 0, 0)
+        }
+
+        refreshSidebarHistory("")
+        drawerSearch?.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                refreshSidebarHistory(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+    }
+
+    private fun addSidebarLink(parent: LinearLayout, label: String, message: String) {
+        val item = TextView(this).apply {
+            text = label
+            textSize = 14f
+            setTextColor(white)
+            setPadding(dp(8), dp(12), dp(8), dp(12))
+            setOnClickListener {
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+        parent.addView(item)
+    }
+
+    private fun refreshSidebarHistory(query: String) {
+        val list = drawerHistory ?: return
+        list.removeAllViews()
+        val filtered = sessions.asReversed().filter {
+            it.title.contains(query, ignoreCase = true)
+        }
+        if (filtered.isEmpty()) {
+            val empty = TextView(this).apply {
+                text = if (query.isBlank()) "Belum ada riwayat chat" else "Chat tidak ditemukan"
+                textSize = 13f
+                setTextColor(muted)
+                setPadding(dp(7), dp(12), dp(7), dp(12))
+            }
+            list.addView(empty)
+            return
+        }
+        filtered.forEach { session ->
+            val item = TextView(this).apply {
+                text = "▤   ${session.title}"
+                textSize = 13f
+                setTextColor(white)
+                maxLines = 2
+                setPadding(dp(10), dp(13), dp(10), dp(13))
+                background = rounded(Color.rgb(28, 28, 40), 12)
+                setOnClickListener {
+                    restoreSession(session)
+                    drawerPopup?.dismiss()
+                }
+            }
+            val params = LinearLayout.LayoutParams(-1, -2)
+            params.setMargins(0, 0, 0, dp(7))
+            list.addView(item, params)
         }
     }
+
+    private fun saveCurrentSession() {
+        val current = currentSession ?: return
+        current.messages.clear()
+        current.messages.addAll(messages)
+        if (current.messages.isNotEmpty() && sessions.none { it === current }) {
+            sessions.add(current)
+        }
+        if (drawerPopup?.isShowing == true) {
+            refreshSidebarHistory(drawerSearch?.text?.toString().orEmpty())
+        }
+    }
+
+    private fun restoreSession(session: ChatSession) {
+        if (isLoading) return
+        saveCurrentSession()
+        currentSession = session
+        messages.clear()
+        messages.addAll(session.messages)
+        chatLayout.removeAllViews()
+        if (messages.isEmpty()) {
+            showWelcome()
+        } else {
+            messages.forEach { addBubble(it.first, it.second) }
+        }
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                touchStartX = event.rawX
+                touchStartY = event.rawY
+            }
+            MotionEvent.ACTION_UP -> {
+                val dx = event.rawX - touchStartX
+                val dy = kotlin.math.abs(event.rawY - touchStartY)
+                if (dy < dp(90)) {
+                    if (drawerPopup?.isShowing == true && dx < -dp(90)) {
+                        drawerPopup?.dismiss()
+                    } else if (drawerPopup?.isShowing != true && touchStartX < dp(24) && dx > dp(100)) {
+                        openSidebar()
+                    }
+                }
+            }
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    // WELCOME
 
     private fun showWelcome() {
 
@@ -273,7 +495,7 @@ class MainActivity : Activity() {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(12), dp(50), dp(12), dp(30))
+            setPadding(dp(12), dp(55), dp(12), dp(35))
         }
 
         val logo = TextView(this).apply {
@@ -308,7 +530,6 @@ class MainActivity : Activity() {
         addSuggestion(container, "Tanya apa saja")
 
         chatLayout.addView(container)
-        animateView(container)
     }
 
     private fun addSuggestion(
@@ -347,53 +568,67 @@ class MainActivity : Activity() {
 
         val params = LinearLayout.LayoutParams(-1, -2)
         params.setMargins(0, dp(8), 0, 0)
-
         parent.addView(item, params)
     }
-        private fun sendMessage() {
+
+    // SEND MESSAGE
+
+    private fun sendMessage() {
 
         if (isLoading) return
 
-        val text = input.text.toString().trim()
-        if (text.isEmpty()) return
+        val question = input.text.toString().trim()
 
-        if (messages.isEmpty()) {
-            saveCurrentSession()
+        if (question.isEmpty()) return
+
+        if (question.length > 6000) {
+            Toast.makeText(
+                this,
+                "Pesan terlalu panjang.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
         }
 
-        messages.add(Pair("user", text))
-
-        if (chatLayout.childCount == 1 &&
-            messages.size == 1
-        ) {
+        if (messages.isEmpty()) {
             chatLayout.removeAllViews()
         }
 
-        addBubble("user", text)
-
         input.text.clear()
         hideKeyboard()
-        setLoading(true)
-        showThinking()
+
+        if (currentSession == null) {
+            currentSession = ChatSession(question.take(38))
+        } else if (currentSession?.messages?.isEmpty() == true) {
+            currentSession?.title = question.take(38)
+        }
+        messages.add(Pair("user", question))
+        saveCurrentSession()
+        addBubble("user", question)
 
         requestAI()
     }
 
+    // AI REQUEST
+
     private fun requestAI() {
 
-        val requestMessages = messages.toList()
+        if (isLoading) return
+
+        setLoading(true)
+        showThinking()
 
         executor.execute {
 
-            var answer = ""
+            var connection: HttpURLConnection? = null
 
             try {
 
-                val connection =
+                connection =
                     URL(apiUrl).openConnection() as HttpURLConnection
 
                 connection.requestMethod = "POST"
-                connection.connectTimeout = 30000
+                connection.connectTimeout = 20000
                 connection.readTimeout = 60000
                 connection.doOutput = true
 
@@ -409,10 +644,9 @@ class MainActivity : Activity() {
 
                 val jsonMessages = JSONArray()
 
-                requestMessages.forEach { message ->
+                messages.takeLast(30).forEach { message ->
 
                     val item = JSONObject()
-
                     item.put("role", message.first)
                     item.put("content", message.second)
 
@@ -423,7 +657,9 @@ class MainActivity : Activity() {
                 body.put("messages", jsonMessages)
 
                 connection.outputStream.use {
-                    it.write(body.toString().toByteArray())
+                    it.write(
+                        body.toString().toByteArray(Charsets.UTF_8)
+                    )
                 }
 
                 val responseCode = connection.responseCode
@@ -435,137 +671,139 @@ class MainActivity : Activity() {
                         connection.errorStream
                     }
 
-                val responseText =
-                    responseStream.bufferedReader().use {
-                        it.readText()
-                    }
+                val response = responseStream
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    ?: ""
 
                 if (responseCode !in 200..299) {
+                    throw Exception("HTTP $responseCode: $response")
+                }
+
+                val result = JSONObject(response)
+
+                if (!result.optBoolean("success", true)) {
                     throw Exception(
-                        "Server error: $responseCode"
+                        result.optString(
+                            "error",
+                            "AI gagal menjawab."
+                        )
                     )
                 }
 
-                val result = JSONObject(responseText)
+                val reply = result.optString("reply", "")
 
-                answer = result.optString("reply")
-
-                if (answer.isBlank()) {
-                    answer = result.optString("response")
+                if (reply.isBlank()) {
+                    throw Exception("Jawaban AI kosong.")
                 }
 
-                if (answer.isBlank()) {
-                    answer = result.optString("answer")
+                runOnUiThread {
+
+                    removeThinking()
+                    messages.add(Pair("assistant", reply))
+                    saveCurrentSession()
+                    setLoading(false)
+                    addBubble("assistant", reply)
                 }
-
-                if (answer.isBlank()) {
-                    answer = result.optString("content")
-                }
-
-                if (answer.isBlank()) {
-
-                    val choices =
-                        result.optJSONArray("choices")
-
-                    if (choices != null &&
-                        choices.length() > 0
-                    ) {
-
-                        answer = choices
-                            .getJSONObject(0)
-                            .optJSONObject("message")
-                            ?.optString("content")
-                            ?: ""
-                    }
-                }
-
-                if (answer.isBlank()) {
-                    answer = "AI-XD tidak menerima jawaban dari server."
-                }
-
-                connection.disconnect()
 
             } catch (e: Exception) {
 
-                answer =
-                    "AI-XD gagal menjawab.\n\n${e.message}"
-            }
+                runOnUiThread {
 
-            runOnUiThread {
+                    removeThinking()
+                    setLoading(false)
 
-                removeThinking()
-                setLoading(false)
+                    addBubble(
+                        "assistant",
+                        "AI-XD gagal menjawab.\n\n${e.message}"
+                    )
+                }
 
-                messages.add(Pair("assistant", answer))
-
-                addBubble("assistant", answer)
-                scrollToBottom()
+            } finally {
+                connection?.disconnect()
             }
         }
     }
 
+    // CHAT DISPLAY
+
     private fun addBubble(
         role: String,
-        text: String
+        message: String
     ) {
 
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = if (role == "user") {
-                Gravity.END
-            } else {
-                Gravity.START
+        if (role == "user") {
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+                setPadding(0, dp(8), 0, dp(8))
             }
 
-            setPadding(0, dp(7), 0, dp(7))
-        }
-
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(
-                if (role == "user") dp(14) else 0,
-                dp(10),
-                if (role == "user") dp(14) else 0,
-                dp(10)
-            )
-
-            if (role == "user") {
-                background = rounded(panel, 19)
+            val bubble = TextView(this).apply {
+                text = message
+                textSize = 15f
+                setTextColor(white)
+                setPadding(dp(15), dp(12), dp(15), dp(12))
+                background = rounded(
+                    Color.rgb(91, 57, 155),
+                    19
+                )
             }
-        }
 
-        val messageView = renderMarkdown(text)
-
-        content.addView(messageView)
-
-        row.addView(
-            content,
-            LinearLayout.LayoutParams(
-                if (role == "user") {
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                } else {
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                },
+            val params = LinearLayout.LayoutParams(
+                (resources.displayMetrics.widthPixels * 0.78f).toInt(),
                 -2
             )
-        )
 
-        if (role == "assistant") {
+            row.addView(bubble, params)
+            chatLayout.addView(row)
+
+        } else {
+
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(2), dp(15), dp(2), dp(15))
+            }
+
+            val header = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val name = TextView(this).apply {
+                text = "✦  AI-XD"
+                textSize = 14f
+                setTextColor(Color.rgb(190, 155, 255))
+                typeface = Typeface.DEFAULT_BOLD
+            }
+
+            
+            header.addView(
+                name,
+                LinearLayout.LayoutParams(0, -2, 1f)
+            )
+
+            val answer = TextView(this).apply {
+                text = message
+                textSize = 15f
+                setTextColor(white)
+                setLineSpacing(dp(3).toFloat(), 1f)
+                setPadding(0, dp(9), 0, dp(5))
+                setTextIsSelectable(true)
+            }
+
+            container.addView(header)
+            container.addView(answer)
 
             val actions = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.START
+                gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, dp(5), 0, 0)
             }
 
             actions.addView(
-                createAction("Copy") {
-                    copyText(text)
-                }
-            )
-
-            actions.addView(
-                createAction("Like") {
+                createAction("👍") {
                     Toast.makeText(
                         this@MainActivity,
                         "Terima kasih atas penilaiannya",
@@ -575,7 +813,7 @@ class MainActivity : Activity() {
             )
 
             actions.addView(
-                createAction("Dislike") {
+                createAction("👎") {
                     Toast.makeText(
                         this@MainActivity,
                         "Masukan diterima",
@@ -585,337 +823,35 @@ class MainActivity : Activity() {
             )
 
             actions.addView(
-                createAction("Regenerate") {
+                createAction("Salin") {
+                    copyText(message)
+                }
+            )
+
+            actions.addView(
+                createAction("↻") {
                     regenerateAnswer()
                 }
             )
 
-            row.addView(actions)
+            container.addView(actions)
+            chatLayout.addView(container)
         }
 
-        chatLayout.addView(row)
-        animateView(row)
         scrollToBottom()
     }
 
-    private fun renderMarkdown(text: String): LinearLayout {
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-
-        val lines = text.split("\n")
-
-        var index = 0
-        var inCode = false
-        val codeLines = mutableListOf<String>()
-
-        while (index < lines.size) {
-
-            val line = lines[index]
-
-            if (line.trim().startsWith("```")) {
-
-                if (!inCode) {
-                    inCode = true
-                    codeLines.clear()
-                } else {
-                    addCodeBlock(
-                        container,
-                        codeLines.joinToString("\n")
-                    )
-                    inCode = false
-                }
-
-                index++
-                continue
-            }
-
-            if (inCode) {
-                codeLines.add(line)
-                index++
-                continue
-            }
-
-            when {
-
-                line.startsWith("### ") -> {
-                    addMarkdownText(
-                        container,
-                        line.removePrefix("### "),
-                        17f,
-                        true
-                    )
-                }
-
-                line.startsWith("## ") -> {
-                    addMarkdownText(
-                        container,
-                        line.removePrefix("## "),
-                        19f,
-                        true
-                    )
-                }
-
-                line.startsWith("# ") -> {
-                    addMarkdownText(
-                        container,
-                        line.removePrefix("# "),
-                        23f,
-                        true
-                    )
-                }
-
-                line.startsWith("- ") ||
-                line.startsWith("* ") -> {
-
-                    addListItem(
-                        container,
-                        line.substring(2),
-                        false
-                    )
-                }
-
-                Regex("^\\d+\\.\\s").containsMatchIn(line) -> {
-
-                    val number =
-                        line.substringBefore(".")
-
-                    val content =
-                        line.substringAfter(".").trim()
-
-                    addListItem(
-                        container,
-                        content,
-                        true,
-                        number
-                    )
-                }
-
-                line.isBlank() -> {
-                    val space = View(this)
-                    container.addView(
-                        space,
-                        LinearLayout.LayoutParams(
-                            1,
-                            dp(5)
-                        )
-                    )
-                }
-
-                else -> {
-                    addMarkdownText(
-                        container,
-                        line,
-                        15f,
-                        false
-                    )
-                }
-            }
-
-            index++
-        }
-
-        if (inCode && codeLines.isNotEmpty()) {
-            addCodeBlock(
-                container,
-                codeLines.joinToString("\n")
-            )
-        }
-
-        return container
-    }
-
-    private fun addMarkdownText(
-        parent: LinearLayout,
-        text: String,
-        size: Float,
-        bold: Boolean
-    ) {
-
-        val view = TextView(this).apply {
-            this.text = parseInlineMarkdown(text)
-            textSize = size
-            setTextColor(white)
-            setLineSpacing(dp(3).toFloat(), 1f)
-
-            if (bold) {
-                typeface = Typeface.DEFAULT_BOLD
-            }
-
-            setPadding(0, dp(2), 0, dp(2))
-        }
-
-        parent.addView(view)
-    }
-
-    private fun addListItem(
-        parent: LinearLayout,
-        text: String,
-        numbered: Boolean,
-        number: String = ""
-    ) {
-
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.TOP
-            setPadding(0, dp(3), 0, dp(3))
-        }
-
-        val marker = TextView(this).apply {
-
-            this.text = if (numbered) {
-                "$number."
-            } else {
-                "•"
-            }
-
-            textSize = 16f
-            setTextColor(purple)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 0, dp(9), 0)
-        }
-
-        val content = TextView(this).apply {
-            this.text = parseInlineMarkdown(text)
-            textSize = 15f
-            setTextColor(white)
-            setLineSpacing(dp(3).toFloat(), 1f)
-        }
-
-        row.addView(marker)
-
-        row.addView(
-            content,
-            LinearLayout.LayoutParams(0, -2, 1f)
-        )
-
-        parent.addView(row)
-    }
-
-    private fun parseInlineMarkdown(
-        text: String
-    ): SpannableStringBuilder {
-
-        val result = SpannableStringBuilder()
-        val regex = Regex(
-            "\\*\\*(.+?)\\*\\*|\\*(.+?)\\*|`(.+?)`"
-        )
-
-        var lastIndex = 0
-
-        regex.findAll(text).forEach { match ->
-
-            result.append(
-                text.substring(lastIndex, match.range.first)
-            )
-
-            val value =
-                match.groups[1]?.value
-                    ?: match.groups[2]?.value
-                    ?: match.groups[3]?.value
-                    ?: ""
-
-            val start = result.length
-            result.append(value)
-            val end = result.length
-
-            when {
-                match.groups[1] != null -> {
-                    result.setSpan(
-                        StyleSpan(Typeface.BOLD),
-                        start,
-                        end,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
-
-                match.groups[2] != null -> {
-                    result.setSpan(
-                        StyleSpan(Typeface.ITALIC),
-                        start,
-                        end,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
-
-                match.groups[3] != null -> {
-                    result.setSpan(
-                        TypefaceSpan("monospace"),
-                        start,
-                        end,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-
-                    result.setSpan(
-                        ForegroundColorSpan(purple),
-                        start,
-                        end,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
-            }
-
-            lastIndex = match.range.last + 1
-        }
-
-        result.append(text.substring(lastIndex))
-
-        return result
-    }
-
-    private fun addCodeBlock(
-        parent: LinearLayout,
-        code: String
-    ) {
-
-        val codeView = TextView(this).apply {
-            text = code
-            textSize = 13f
-            typeface = Typeface.MONOSPACE
-            setTextColor(Color.rgb(220, 210, 255))
-            setPadding(
-                dp(13),
-                dp(13),
-                dp(13),
-                dp(13)
-            )
-            background = rounded(
-                Color.rgb(30, 27, 42),
-                12
-            )
-            setTextIsSelectable(true)
-        }
-
-        val params = LinearLayout.LayoutParams(
-            -1,
-            -2
-        )
-
-        params.setMargins(0, dp(7), 0, dp(7))
-
-        parent.addView(codeView, params)
-    }
-        private fun createAction(
+    private fun createAction(
         label: String,
         action: () -> Unit
     ): TextView {
 
         return TextView(this).apply {
             text = label
-            textSize = 11f
+            textSize = 13f
             setTextColor(muted)
-            setPadding(
-                dp(9),
-                dp(7),
-                dp(9),
-                dp(7)
-            )
-
-            background = rounded(
-                Color.TRANSPARENT,
-                10
-            )
+            gravity = Gravity.CENTER
+            setPadding(dp(9), dp(8), dp(9), dp(8))
 
             setOnClickListener {
                 action()
@@ -923,91 +859,80 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun copyText(text: String) {
+    // COPY
+
+    private fun copyText(message: String) {
 
         val clipboard =
-            getSystemService(Context.CLIPBOARD_SERVICE)
-                as ClipboardManager
+            getSystemService(
+                Context.CLIPBOARD_SERVICE
+            ) as ClipboardManager
 
         clipboard.setPrimaryClip(
-            ClipData.newPlainText("AI-XD", text)
+            ClipData.newPlainText("AI-XD", message)
         )
 
         Toast.makeText(
             this,
-            "Teks berhasil disalin",
+            "Jawaban disalin",
             Toast.LENGTH_SHORT
         ).show()
     }
 
+    // REGENERATE
+
     private fun regenerateAnswer() {
 
         if (isLoading) return
-
         if (messages.isEmpty()) return
 
         if (messages.last().first == "assistant") {
             messages.removeAt(messages.lastIndex)
+
+            if (chatLayout.childCount > 0) {
+                chatLayout.removeViewAt(
+                    chatLayout.childCount - 1
+                )
+            }
         }
 
         if (messages.isEmpty()) return
+        if (messages.last().first != "user") return
 
-        chatLayout.removeAllViews()
-
-        messages.forEach { message ->
-            addBubble(
-                message.first,
-                message.second
-            )
-        }
-
-        setLoading(true)
-        showThinking()
         requestAI()
     }
+
+    // THINKING
 
     private fun showThinking() {
 
         removeThinking()
 
-        val thinking = TextView(this).apply {
-            text = "AI-XD sedang berpikir..."
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.START
+            setPadding(0, dp(12), 0, dp(12))
+        }
+
+        val bubble = TextView(this).apply {
+            text = "✦  AI-XD sedang berpikir..."
             textSize = 13f
-            setTextColor(muted)
-            setPadding(
-                dp(3),
-                dp(12),
-                dp(3),
-                dp(12)
+            setTextColor(Color.rgb(205, 185, 240))
+            setPadding(dp(15), dp(12), dp(15), dp(12))
+            background = rounded(
+                Color.rgb(35, 29, 49),
+                18
             )
         }
 
-        thinkingView = thinking
-        chatLayout.addView(thinking)
-
-        thinkingAnimator = ValueAnimator.ofFloat(
-            0.35f,
-            1f
-        ).apply {
-
-            duration = 800
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-
-            addUpdateListener {
-                thinking.alpha = it.animatedValue as Float
-            }
-
-            start()
-        }
+        row.addView(bubble)
+        chatLayout.addView(row)
+        thinkingView = row
 
         scrollToBottom()
     }
 
     private fun removeThinking() {
-
-        thinkingAnimator?.cancel()
-        thinkingAnimator = null
 
         thinkingView?.let {
             chatLayout.removeView(it)
@@ -1016,135 +941,40 @@ class MainActivity : Activity() {
         thinkingView = null
     }
 
+    // LOADING
+
     private fun setLoading(loading: Boolean) {
 
         isLoading = loading
-
         sendButton.isEnabled = !loading
-        input.isEnabled = !loading
-
-        sendButton.alpha =
-            if (loading) 0.5f else 1f
+        sendButton.alpha = if (loading) 0.5f else 1f
 
         statusText.text =
-            if (loading) {
-                "● AI-XD sedang berpikir"
-            } else {
-                "● AI-XD 4.0"
-            }
+            if (loading) "● AI SEDANG BERPIKIR..."
+            else "● AI-XD 4.1"
     }
+
+    // NEW CHAT
 
     private fun newConversation() {
 
         if (isLoading) return
 
         saveCurrentSession()
-
         messages.clear()
-        chatLayout.removeAllViews()
-
+        currentSession = null
+        removeThinking()
         showWelcome()
-
-        Toast.makeText(
-            this,
-            "Percakapan baru dibuat",
-            Toast.LENGTH_SHORT
-        ).show()
     }
 
-    private fun saveCurrentSession() {
-
-        if (messages.isEmpty()) return
-
-        val title = messages.firstOrNull {
-            it.first == "user"
-        }?.second ?: "Percakapan baru"
-
-        sessions.add(
-            0,
-            ChatSession(
-                title.take(35),
-                messages.toList()
-            )
-        )
-    }
-
-    private fun showHistory() {
-
-        if (sessions.isEmpty()) {
-
-            Toast.makeText(
-                this,
-                "Belum ada riwayat percakapan",
-                Toast.LENGTH_SHORT
-            ).show()
-
-            return
-        }
-
-        val popup = PopupMenu(
-            this,
-            historyButton
-        )
-
-        popup.menu.add(
-            0,
-            -1,
-            0,
-            "Riwayat Percakapan"
-        ).isEnabled = false
-
-        sessions.forEachIndexed { index, session ->
-
-            popup.menu.add(
-                0,
-                index,
-                index + 1,
-                session.title
-            )
-        }
-
-        popup.setOnMenuItemClickListener { item ->
-
-            val index = item.itemId
-
-            if (index in sessions.indices) {
-                restoreSession(index)
-                true
-            } else {
-                false
-            }
-        }
-
-        popup.show()
-    }
-
-    private fun restoreSession(index: Int) {
-
-        if (index !in sessions.indices) return
-
-        val session = sessions[index]
-
-        messages.clear()
-        messages.addAll(session.messages)
-
-        chatLayout.removeAllViews()
-
-        messages.forEach { message ->
-            addBubble(
-                message.first,
-                message.second
-            )
-        }
-
-        scrollToBottom()
-    }
+    // KEYBOARD
 
     private fun hideKeyboard() {
 
         val manager =
-            getSystemService(Context.INPUT_METHOD_SERVICE)
-                as InputMethodManager
+            getSystemService(
+                Context.INPUT_METHOD_SERVICE
+            ) as InputMethodManager
 
         manager.hideSoftInputFromWindow(
             input.windowToken,
@@ -1152,49 +982,38 @@ class MainActivity : Activity() {
         )
     }
 
+    // SCROLL
+
     private fun scrollToBottom() {
 
         scrollView.post {
-            scrollView.fullScroll(View.FOCUS_DOWN)
+            scrollView.smoothScrollTo(
+                0,
+                chatLayout.height
+            )
         }
     }
 
-    private fun animateView(view: View) {
-
-        view.alpha = 0f
-        view.translationY = dp(8).toFloat()
-
-        view.animate()
-            .alpha(1f)
-            .translationY(0f)
-            .setDuration(220)
-            .setInterpolator(DecelerateInterpolator())
-            .start()
-    }
+    // DESIGN
 
     private fun rounded(
-        color: Int,
-        radius: Int
-    ): GradientDrawable {
-
-        return GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = dp(radius).toFloat()
-        }
+    color: Int,
+    radius: Int
+): GradientDrawable {
+    return GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radius).toFloat()
     }
+}
 
-    private fun dp(value: Int): Int {
+private fun dp(value: Int): Int {
+    return (
+        value * resources.displayMetrics.density
+    ).toInt()
+}
 
-        return (
-            value * resources.displayMetrics.density
-        ).toInt()
-    }
-
-    override fun onDestroy() {
-
-        thinkingAnimator?.cancel()
-        executor.shutdownNow()
-
-        super.onDestroy()
-    }
+override fun onDestroy() {
+    executor.shutdownNow()
+    super.onDestroy()
+}
 }
